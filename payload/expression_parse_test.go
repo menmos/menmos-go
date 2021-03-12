@@ -42,6 +42,28 @@ func Test_ParseExpression(t *testing.T) {
 			payload.NewExpression().AndTag("bing").AndHasKey("bong"),
 			false,
 		},
+		{
+			"or with sized slice",
+			map[string]interface{}{
+				"or": [2]interface{}{
+					map[string]interface{}{"tag": "bing"},
+					map[string]interface{}{"key": "bong"},
+				},
+			},
+			payload.NewExpression(),
+			true,
+		},
+		{
+			"or with unsized slice",
+			map[string]interface{}{
+				"or": []interface{}{
+					map[string]interface{}{"tag": "bing"},
+					map[string]interface{}{"key": "bong"},
+				},
+			},
+			payload.NewExpression().OrTag("bing").OrHasKey("bong"),
+			false,
+		},
 	}
 
 	for _, tCase := range cases {

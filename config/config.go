@@ -43,8 +43,7 @@ func getDefaultConfigPath() (string, error) {
 
 	menmosConfigDirPath := path.Join(configPath, menmosConfigDirName)
 
-	// TODO: Change ModePerm to something more appropriate.
-	if err := os.MkdirAll(menmosConfigDirPath, os.ModePerm); err != nil {
+	if err := os.MkdirAll(menmosConfigDirPath, 0644); err != nil {
 		return "", errors.Wrap(err, "failed to create menmos config directory")
 	}
 

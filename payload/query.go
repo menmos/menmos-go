@@ -33,8 +33,6 @@ type notNode struct {
 }
 
 // Expression allows to build a structured query.
-// TODO: Implement expression deserialization:
-// https://medium.com/@haya14busa/sum-union-variant-type-in-go-and-static-check-tool-of-switch-case-handling-3bfc61618b1e
 type Expression struct {
 	body interface{}
 }
@@ -49,48 +47,68 @@ func ParseExpression(rawData map[string]interface{}) (Expression, error) {
 	return Expression{body: body}, err
 }
 
+// I'd like to expose that method for ease of use, but since Go doesn't have union types,
+// we need to accept interface{} here when in reality there is a finite set of types that are valid.
+// To mantain a semblance of type safety, we hide methods taking & returning interface{} and expose type safe methods,
+// at the cost of repeating ourselves.
+func (e Expression) and(subexpr interface{}) Expression {
+	if e.body == nil {
+		e.body = subexpr
+	} else {
+		e.body = andNode{And: [2]interface{}{e.body, subexpr}}
+	}
+
+	return e
+}
+
+func (e Expression) or(subexpr interface{}) Expression {
+	if e.body == nil {
+		e.body = subexpr
+	} else {
+		e.body = orNode{Or: [2]interface{}{e.body, subexpr}}
+	}
+
+	return e
+}
+
 // AndTag ANDs a tag condition with the query.
 func (e Expression) AndTag(tag string) Expression {
-	node := tagNode{Tag: tag}
-	if e.body == nil {
-		e.body = node
-	} else {
-		e.body = andNode{And: [2]interface{}{e.body, node}}
-	}
-	return e
+	return e.and(tagNode{Tag: tag})
 }
 
 // AndKeyValue ANDs a key/value condition with the query.
 func (e Expression) AndKeyValue(key string, value string) Expression {
-	node := keyValueNode{Key: key, Value: value}
-	if e.body == nil {
-		e.body = node
-	} else {
-		e.body = andNode{And: [2]interface{}{e.body, node}}
-	}
-	return e
+	return e.and(keyValueNode{Key: key, Value: value})
 }
 
 // AndHasKey ANDs a "has key" condition with the query.
 func (e Expression) AndHasKey(key string) Expression {
-	node := hasKeyNode{Key: key}
-	if e.body == nil {
-		e.body = node
-	} else {
-		e.body = andNode{And: [2]interface{}{e.body, node}}
-	}
-	return e
+	return e.and(hasKeyNode{Key: key})
 }
 
 // AndParent ANDs a parent condition with the query.
 func (e Expression) AndParent(parentID string) Expression {
-	node := parentNode{Parent: parentID}
-	if e.body == nil {
-		e.body = node
-	} else {
-		e.body = andNode{And: [2]interface{}{e.body, node}}
-	}
-	return e
+	return e.and(parentNode{Parent: parentID})
+}
+
+// OrTag ORs a tag condition with the query.
+func (e Expression) OrTag(tag string) Expression {
+	return e.or(tagNode{Tag: tag})
+}
+
+// OrKeyValue ORs a key/value condition with the query.
+func (e Expression) OrKeyValue(key string, value string) Expression {
+	return e.or(keyValueNode{Key: key, Value: value})
+}
+
+// OrHasKey ORs a "has key" condition with the query.
+func (e Expression) OrHasKey(key string) Expression {
+	return e.or(hasKeyNode{Key: key})
+}
+
+// OrParent ORs a parent condition with the query.
+func (e Expression) OrParent(parentID string) Expression {
+	return e.or(parentNode{Parent: parentID})
 }
 
 // Query is the expected menmos query request.

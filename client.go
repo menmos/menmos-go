@@ -9,11 +9,14 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/menmos/menmos-go/config"
 	"github.com/menmos/menmos-go/payload"
 	"github.com/pkg/errors"
 )
+
+const userAgent = "menmos-go"
 
 // Client provides an API to interact with a menmos cluster.
 type Client struct {
@@ -29,6 +32,9 @@ func NewFromProfile(profileName string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Block out redirections.
+	// We need to handle those ourselves.
 	customClient := http.Client{
 		CheckRedirect: func(redirRequest *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -37,7 +43,7 @@ func NewFromProfile(profileName string) (*Client, error) {
 
 	client := &Client{
 		httpClient:    &customClient,
-		host:          profile.Host, // TODO: Ensure host is *not* slash-terminated.
+		host:          strings.TrimSuffix(profile.Host, "/"),
 		token:         "",
 		maxRetryCount: 40, // TODO: Make configurable.
 	}
@@ -50,28 +56,29 @@ func NewFromProfile(profileName string) (*Client, error) {
 	return client, nil
 }
 
+// low-level wrapper function to create an authenticated request to menmos.
 func (c *Client) makeRequest(method string, path string, data io.Reader) (*http.Request, error) {
 	request, err := http.NewRequest(method, c.host+path, data)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create %s request", method)
+		return nil, errors.Wrapf(err, "%s %s - failed to create request", method, path)
 	}
 
 	if len(c.token) != 0 {
 		request.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.token))
 	}
 
-	request.Header.Add("User-Agent", "menmos-go/0.1") // TODO: Extract "menmos-go" as constant and properly detect version.
+	request.Header.Add("User-Agent", fmt.Sprintf("%s/%s", userAgent, Version))
 
 	return request, nil
 }
 
+// Wrapper function to create a request that sends a JSON payload.
 func (c *Client) makeJSONRequest(method string, path string, data interface{}) (*http.Request, error) {
 	var dataReader io.Reader = nil
 	if data != nil {
 		bodyBytes, err := json.Marshal(&data)
-		fmt.Printf("payload data: %s\n", string(bodyBytes))
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to serialize %s body", method)
+			return nil, errors.Wrapf(err, "%s %s - failed to serialize body", method, path)
 		}
 		dataReader = bytes.NewReader(bodyBytes)
 	}
@@ -88,62 +95,39 @@ func (c *Client) makeJSONRequest(method string, path string, data interface{}) (
 	return req, nil
 }
 
+// Performs a request and returns the redirect location.
 func (c *Client) doWithRedirect(request *http.Request) (*url.URL, error) {
 	resp, err := c.httpClient.Do(request)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, fmt.Sprintf("%s %s - failed to perform redirect request", request.Method, request.URL))
 	}
 
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 307 {
-		// We have a redirect, retry.
-		resp, err = c.httpClient.Do(request)
+	if isTemporaryRedirect(resp.StatusCode) {
+		redirectLocation, err := resp.Location()
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, fmt.Sprintf("%s %s - failed to get redirect location", request.Method, request.URL))
 		}
-		defer resp.Body.Close()
-		return resp.Location()
+		return redirectLocation, nil
 	}
 
-	return nil, errors.New("no redirect")
+	return nil, fmt.Errorf("%s %s - expected redirect, got none", request.Method, request.URL)
 
-}
-
-func (c *Client) get(path string, response interface{}) error {
-	req, err := c.makeJSONRequest("GET", path, nil)
-	if err != nil {
-		return err
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return errors.Wrap(err, "GET request failed")
-	}
-	defer resp.Body.Close()
-
-	decoder := json.NewDecoder(resp.Body)
-	if err := decoder.Decode(&response); err != nil {
-		return errors.Wrap(err, "failed to deseriallize GET response")
-	}
-
-	return nil
 }
 
 func (c *Client) doJSONRequest(req *http.Request, response interface{}) error {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return errors.Wrapf(err, "%s request failed", req.Method)
+		return errors.Wrapf(err, "%s %s - request failed", req.Method, req.URL)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 || resp.StatusCode < 200 {
-		return errors.New(fmt.Sprintf("unexpected status '%s'", resp.Status))
+	if !isStatusSuccess(resp.StatusCode) {
+		return errors.New(fmt.Sprintf("%s %s - unexpected status '%s'", req.Method, req.URL, resp.Status))
 	}
 
 	decoder := json.NewDecoder(resp.Body)
 	if err := decoder.Decode(&response); err != nil {
-		return errors.Wrapf(err, "failed to deserialize %s response", req.Method)
+		return errors.Wrapf(err, "%s %s - failed to deserialize response", req.Method, req.URL)
 	}
 
 	return nil
@@ -164,41 +148,14 @@ func (c *Client) authenticate(username string, password string) (string, error) 
 	return response.Token, nil
 }
 
-// IsHealthy returns whether the menmos cluster is healthy.
-func (c *Client) IsHealthy() (bool, error) {
-	var response payload.MessageResponse
-
-	if err := c.get("/health", &response); err != nil {
-		return false, errors.Wrap(err, "healthcheck failed")
-	}
-
-	return true, nil
-}
-
-// Query executes a query on the menmos cluster.
-func (c *Client) Query(query *payload.Query) (*payload.QueryResponse, error) {
-	var response payload.QueryResponse
-
-	request, err := c.makeJSONRequest("POST", "/query", query)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create query request")
-	}
-
-	if err := c.doJSONRequest(request, &response); err != nil {
-		return nil, errors.Wrap(err, "query failed")
-	}
-
-	return &response, nil
-}
-
 func (c *Client) readRange(blobID string, start int64, end int64) (io.ReadCloser, error) {
 	if start > end {
-		return nil, errors.New("invalid range for read request")
+		return nil, fmt.Errorf("invalid range for read request: %d-%d", start, end)
 	}
 
 	req, err := c.makeJSONRequest("GET", fmt.Sprintf("/blob/%s", blobID), nil)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create read request")
+		return nil, err
 	}
 
 	redirectLocation, err := c.doWithRedirect(req)
@@ -217,55 +174,6 @@ func (c *Client) readRange(blobID string, start int64, end int64) (io.ReadCloser
 	return resp.Body, nil
 }
 
-func (c *Client) Get(blobID string, readRange *Range) (io.ReadCloser, error) {
-	if readRange != nil {
-		return &rangeReader{BlobID: blobID, Client: c, RangeStart: readRange.Start, RangeEnd: readRange.End}, nil
-	}
-
-	req, err := c.makeJSONRequest("GET", fmt.Sprintf("/blob/%s", blobID), nil)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create read request")
-	}
-
-	redirectLocation, err := c.doWithRedirect(req)
-	if err != nil {
-		return nil, errors.Wrap(err, "redirect failed")
-	}
-
-	req.URL = redirectLocation
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, errors.Wrap(err, "read request failed")
-	}
-	return resp.Body, nil
-}
-
-func (c *Client) Delete(blobID string) error {
-	req, err := c.makeJSONRequest("DELETE", fmt.Sprintf("/blob/%s", blobID), nil)
-	if err != nil {
-		return errors.Wrap(err, "failed to create delete request")
-	}
-
-	redirectLocation, err := c.doWithRedirect(req)
-	if err != nil {
-		return errors.Wrap(err, "redirect failed")
-	}
-
-	req.URL = redirectLocation
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return errors.Wrap(err, "delete request failed")
-	}
-
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("unexpected status: %s", resp.Status)
-	}
-
-	return nil
-}
-
 func (c *Client) setMultipartRequestBody(payload io.ReadCloser, req *http.Request) error {
 	if payload == nil {
 		return nil
@@ -274,7 +182,7 @@ func (c *Client) setMultipartRequestBody(payload io.ReadCloser, req *http.Reques
 	defer payload.Close()
 
 	// TODO: This buffer thing isn't great - it loads the whole buffer to write in memory...
-	// This would need to be seriously improved before a production release.
+	// For better performance with very large files we'd need to improve this so its streaming instead.
 	var bodyBuffer bytes.Buffer
 	var err error
 	w := multipart.NewWriter(&bodyBuffer)
@@ -287,8 +195,7 @@ func (c *Client) setMultipartRequestBody(payload io.ReadCloser, req *http.Reques
 		return errors.Wrap(err, "failed to build multipart form body")
 	}
 	if err := w.Close(); err != nil {
-		fmt.Println("failed to close writer")
-		return errors.Wrap(err, "failed to close writer")
+		return errors.Wrap(err, "failed to close body writer")
 	}
 
 	req.Body = io.NopCloser(&bodyBuffer)
@@ -300,22 +207,20 @@ func (c *Client) setMultipartRequestBody(payload io.ReadCloser, req *http.Reques
 }
 
 func (c *Client) pushInternal(path string, body io.ReadCloser, meta payload.BlobMeta) (string, error) {
-
 	req, err := c.makeRequest("POST", path, nil)
 	if err != nil {
-		return "", errors.Wrap(err, "failed to create push request")
+		return "", err
 	}
 
 	metaBytes, err := json.Marshal(&meta)
 	if err != nil {
 		return "", errors.Wrap(err, "failed to serialize blob metadata")
 	}
-	fmt.Println("Blob Meta: ", string(metaBytes))
 	req.Header.Add("X-Blob-Meta", base64.StdEncoding.EncodeToString(metaBytes))
 
 	redirectLocation, err := c.doWithRedirect(req)
 	if err != nil {
-		return "", errors.Wrap(err, "redirect failed")
+		return "", err
 	}
 
 	if err := c.setMultipartRequestBody(body, req); err != nil {
@@ -325,39 +230,108 @@ func (c *Client) pushInternal(path string, body io.ReadCloser, meta payload.Blob
 	req.URL = redirectLocation
 	req.Header.Add("X-Blob-Meta", base64.StdEncoding.EncodeToString(metaBytes))
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", errors.Wrap(err, "push request failed")
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 || resp.StatusCode < 200 {
-		return "", errors.New(fmt.Sprintf("unexpected status '%s'", resp.Status))
-	}
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", errors.Wrap(err, "failed to read response body")
-	}
-
 	var response payload.PushResponse
 
-	if err := json.Unmarshal(bodyBytes, &response); err != nil {
-		return "", errors.Wrap(err, "failed to deserialize push response")
+	if err := c.doJSONRequest(req, &response); err != nil {
+		return "", nil
 	}
 
 	return response.ID, nil
 }
 
+// IsHealthy returns whether the menmos cluster is healthy.
+func (c *Client) IsHealthy() (bool, error) {
+	var response payload.MessageResponse
+
+	req, err := c.makeRequest("GET", "/health", nil)
+	if err != nil {
+		return false, err
+	}
+
+	if err := c.doJSONRequest(req, &response); err != nil {
+		return false, errors.Wrap(err, "healthcheck failed")
+	}
+
+	return true, nil
+}
+
+// Query executes a query on the menmos cluster.
+func (c *Client) Query(query *payload.Query) (*payload.QueryResponse, error) {
+	var response payload.QueryResponse
+
+	request, err := c.makeJSONRequest("POST", "/query", query)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.doJSONRequest(request, &response); err != nil {
+		return nil, err
+	}
+
+	return &response, nil
+}
+
+// Get returns the body of the specified blob.
+// If `readRange` is non-nil, Get will attempt returns that section of the blob.
+func (c *Client) Get(blobID string, readRange *Range) (io.ReadCloser, error) {
+	if readRange != nil {
+		return &rangeReader{BlobID: blobID, Client: c, RangeStart: readRange.Start, RangeEnd: readRange.End}, nil
+	}
+
+	req, err := c.makeJSONRequest("GET", fmt.Sprintf("/blob/%s", blobID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	redirectLocation, err := c.doWithRedirect(req)
+	if err != nil {
+		return nil, err
+	}
+
+	req.URL = redirectLocation
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Body, nil
+}
+
+// Delete deletes a blob from the cluster.
+func (c *Client) Delete(blobID string) error {
+	req, err := c.makeJSONRequest("DELETE", fmt.Sprintf("/blob/%s", blobID), nil)
+	if err != nil {
+		return err
+	}
+
+	redirectLocation, err := c.doWithRedirect(req)
+	if err != nil {
+		return err
+	}
+
+	req.URL = redirectLocation
+
+	var response payload.MessageResponse
+	if err := c.doJSONRequest(req, &response); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Push creates a blob with the provided body and metadata to the cluster.
+// If the body is nil, the blob is created empty.
 func (c *Client) Push(body io.ReadCloser, meta payload.BlobMeta) (string, error) {
 	return c.pushInternal("/blob", body, meta)
 }
 
+// UpdateBlob updates the entirety of a blob's contents and metadata at once.
 func (c *Client) UpdateBlob(blobID string, body io.ReadCloser, meta payload.BlobMeta) error {
 	_, err := c.pushInternal(fmt.Sprintf("/blob/%s", blobID), body, meta)
 	return err
 }
 
+// UpdateMeta updates exclusively the blob metadata.
 func (c *Client) UpdateMeta(blobID string, meta payload.BlobMeta) error {
 	var response payload.MessageResponse
 	req, err := c.makeJSONRequest("PUT", fmt.Sprintf("/blob/%s/metadata", blobID), &meta)
@@ -370,6 +344,7 @@ func (c *Client) UpdateMeta(blobID string, meta payload.BlobMeta) error {
 		return err
 	}
 
+	// Go doesn't like keeping headers between requests, we'll rebuild from scratch.
 	req, err = c.makeJSONRequest("PUT", fmt.Sprintf("/blob/%s/metadata", blobID), &meta)
 	if err != nil {
 		return err
@@ -378,7 +353,7 @@ func (c *Client) UpdateMeta(blobID string, meta payload.BlobMeta) error {
 	req.URL = redirectLocation
 
 	if err := c.doJSONRequest(req, &response); err != nil {
-		return errors.Wrap(err, "failed to update metadata")
+		return err
 	}
 	return nil
 }
