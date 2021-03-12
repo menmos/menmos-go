@@ -1,0 +1,26 @@
+name: "Tests"
+on:
+  push: {}
+
+jobs:
+  unit:
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install Go
+        uses: actions/setup-go@v2
+        with:
+          stable: 'false'
+          go-version: ${{ matrix.go }}
+
+      - name: Mount module cache
+        uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: menmos-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            menmos-go-
+
+      - name: Run Tests
+        run: |
+          make test
