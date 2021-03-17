@@ -297,6 +297,24 @@ func (c *Client) Get(blobID string, readRange *Range) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
+func (c *Client) GetMetadata(blobID string) (payload.BlobMeta, error) {
+	req, err := c.makeJSONRequest("GET", fmt.Sprintf("/blob/%s/metadata", blobID), nil)
+	if err != nil {
+		return payload.BlobMeta{}, err
+	}
+
+	var response payload.GetMetadataResponse
+	if err := c.doJSONRequest(req, &response); err != nil {
+		return payload.BlobMeta{}, err
+	}
+
+	if response.Metadata == nil {
+		return payload.BlobMeta{}, fmt.Errorf("get meta: blob '%s' not found", blobID)
+	}
+
+	return *response.Metadata, nil
+}
+
 // Delete deletes a blob from the cluster.
 func (c *Client) Delete(blobID string) error {
 	req, err := c.makeJSONRequest("DELETE", fmt.Sprintf("/blob/%s", blobID), nil)

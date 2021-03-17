@@ -49,3 +49,7 @@ type QueryResponse struct {
 type PushResponse struct {
 	ID string `json:"id,omitempty"`
 }
+
+type GetMetadataResponse struct {
+	Metadata *BlobMeta `json:"meta"`
+}
