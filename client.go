@@ -362,7 +362,7 @@ func (c *Client) UpdateMeta(blobID string, meta payload.BlobMeta) error {
 		return err
 	}
 
-	// Go doesn't like keeping headers between requests, we'll rebuild from scratch.
+	// Go doesn't like keeping the body for both requests, we'll rebuild from scratch.
 	req, err = c.makeJSONRequest("PUT", fmt.Sprintf("/blob/%s/metadata", blobID), &meta)
 	if err != nil {
 		return err
