@@ -1,0 +1,26 @@
+name: "Tests"
+on:
+  push: {}
+
+jobs:
+  unit:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: '1.16.x'
+
+      - name: Mount module cache
+        uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: menmos-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            menmos-go-
+
+      - name: Run Tests
+        run: |
+          make test
