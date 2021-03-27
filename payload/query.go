@@ -49,7 +49,7 @@ func ParseExpression(rawData map[string]interface{}) (Expression, error) {
 
 // I'd like to expose that method for ease of use, but since Go doesn't have union types,
 // we need to accept interface{} here when in reality there is a finite set of types that are valid.
-// To mantain a semblance of type safety, we hide methods taking & returning interface{} and expose type safe methods,
+// To maintain a semblance of type safety, we hide methods taking & returning interface{} and expose type safe methods,
 // at the cost of repeating ourselves.
 func (e Expression) and(subexpr interface{}) Expression {
 	if e.body == nil {

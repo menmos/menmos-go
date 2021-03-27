@@ -43,28 +43,29 @@ func getDefaultConfigPath() (string, error) {
 
 	menmosConfigDirPath := path.Join(configPath, menmosConfigDirName)
 
-	if err := os.MkdirAll(menmosConfigDirPath, 0644); err != nil {
-		return "", errors.Wrap(err, "failed to create menmos config directory")
-	}
-
 	menmosConfigPath := path.Join(menmosConfigDirPath, menmosConfigFileName)
 	return menmosConfigPath, nil
 }
 
 // LoadDefault loads a config from the default path.
-func LoadDefault() (*Config, error) {
+func LoadOrCreateDefault() (*Config, error) {
 	configPath, err := getDefaultConfigPath()
 	if err != nil {
 		return nil, err
+	}
+
+	configDir := path.Dir(configPath)
+	if err := os.MkdirAll(configDir, 0644); err != nil {
+		return nil, errors.Wrap(err, "failed to create menmos config directory")
 	}
 
 	config, err := loadConfigFromFile(configPath)
 	return config, err
 }
 
-// LoadProfileByName is a utility method for loading a single profile from the default config location.
-func LoadProfileByName(profileName string) (*Profile, error) {
-	config, err := LoadDefault()
+// LoadProfileFromDefaultConfig is a utility method for loading a single profile from the default config location.
+func LoadProfileFromDefaultConfig(profileName string) (*Profile, error) {
+	config, err := LoadOrCreateDefault()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to read profile from configuration")
 	}

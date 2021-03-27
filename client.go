@@ -28,7 +28,7 @@ type Client struct {
 
 // NewFromProfile initializes a new menmos client from its profile name.
 func NewFromProfile(profileName string) (*Client, error) {
-	profile, err := config.LoadProfileByName(profileName)
+	profile, err := config.LoadProfileFromDefaultConfig(profileName)
 	if err != nil {
 		return nil, err
 	}
@@ -272,8 +272,8 @@ func (c *Client) Query(query *payload.Query) (*payload.QueryResponse, error) {
 }
 
 // Get returns the body of the specified blob.
-// If `readRange` is non-nil, Get will attempt returns that section of the blob.
-func (c *Client) Get(blobID string, readRange *Range) (io.ReadCloser, error) {
+// If `readRange` is non-nil, Get will return that section of the blob.
+func (c *Client) GetBody(blobID string, readRange *Range) (io.ReadCloser, error) {
 	if readRange != nil {
 		return &rangeReader{BlobID: blobID, Client: c, RangeStart: readRange.Start, RangeEnd: readRange.End}, nil
 	}
@@ -339,7 +339,7 @@ func (c *Client) Delete(blobID string) error {
 
 // Push creates a blob with the provided body and metadata to the cluster.
 // If the body is nil, the blob is created empty.
-func (c *Client) Push(body io.ReadCloser, meta payload.BlobMeta) (string, error) {
+func (c *Client) CreateBlob(body io.ReadCloser, meta payload.BlobMeta) (string, error) {
 	return c.pushInternal("/blob", body, meta)
 }
 
