@@ -53,3 +53,15 @@ type PushResponse struct {
 type GetMetadataResponse struct {
 	Metadata *BlobMeta `json:"meta"`
 }
+
+// StorageNodeInfo is the payload returned by ListStorageNodes.
+type StorageNodeInfo struct {
+	ID             string `json:"id,omitempty"`
+	Port           uint16 `json:"port,omitempty"`
+	Size           uint64 `json:"size,omitempty"`
+	AvailableSpace uint64 `json:"available_space,omitempty"`
+}
+
+type ListStorageNodesResponse struct {
+	StorageNodes []StorageNodeInfo `json:"storage_nodes,omitempty"`
+}

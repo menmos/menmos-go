@@ -26,13 +26,8 @@ type Client struct {
 	maxRetryCount uint32
 }
 
-// NewFromProfile initializes a new menmos client from its profile name.
-func NewFromProfile(profileName string) (*Client, error) {
-	profile, err := config.LoadProfileFromDefaultConfig(profileName)
-	if err != nil {
-		return nil, err
-	}
-
+func New(host string, username string, password string) (*Client, error) {
+	var err error
 	// Block out redirections.
 	// We need to handle those ourselves.
 	customClient := http.Client{
@@ -43,17 +38,26 @@ func NewFromProfile(profileName string) (*Client, error) {
 
 	client := &Client{
 		httpClient:    &customClient,
-		host:          strings.TrimSuffix(profile.Host, "/"),
+		host:          strings.TrimSuffix(host, "/"),
 		token:         "",
 		maxRetryCount: 40, // TODO: Make configurable.
 	}
 
-	client.token, err = client.authenticate(profile.Username, profile.Password)
+	client.token, err = client.authenticate(username, password)
 	if err != nil {
 		return nil, err
 	}
 
 	return client, nil
+}
+
+// NewFromProfile initializes a new menmos client from its profile name.
+func NewFromProfile(profileName string) (*Client, error) {
+	profile, err := config.LoadProfileFromDefaultConfig(profileName)
+	if err != nil {
+		return nil, err
+	}
+	return New(profile.Host, profile.Username, profile.Password)
 }
 
 // low-level wrapper function to create an authenticated request to menmos.
@@ -374,4 +378,20 @@ func (c *Client) UpdateMeta(blobID string, meta payload.BlobMeta) error {
 		return err
 	}
 	return nil
+}
+
+// Lists all storage nodes in the cluster.
+func (c *Client) ListStorageNodes() ([]payload.StorageNodeInfo, error) {
+	var response payload.ListStorageNodesResponse
+
+	req, err := c.makeJSONRequest("GET", "/node/storage", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.doJSONRequest(req, &response); err != nil {
+		return nil, err
+	}
+
+	return response.StorageNodes, nil
 }
