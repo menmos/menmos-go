@@ -12,16 +12,12 @@ type MessageResponse struct {
 
 // A BlobMeta contains the metadata of a single blob.
 type BlobMeta struct {
-	Name     string            `json:"name"`
-	BlobType string            `json:"blob_type"`
-	Metadata map[string]string `json:"metadata"`
-	Tags     []string          `json:"tags"`
-	Parents  []string          `json:"parents"`
-	Size     uint64            `json:"size"`
+	Fields map[string]string `json:"fields"` // TODO: Support multi field types
+	Tags   []string          `json:"tags"`
 }
 
-func NewBlobMeta(name string, blobType string, size uint64) BlobMeta {
-	return BlobMeta{Name: name, BlobType: blobType, Size: size, Metadata: make(map[string]string), Tags: []string{}, Parents: []string{}}
+func NewBlobMeta() BlobMeta {
+	return BlobMeta{Fields: make(map[string]string), Tags: []string{}}
 }
 
 // Hit represents a single query result.

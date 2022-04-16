@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -126,7 +127,8 @@ func (c *Client) doJSONRequest(req *http.Request, response interface{}) error {
 	defer resp.Body.Close()
 
 	if !isStatusSuccess(resp.StatusCode) {
-		return errors.New(fmt.Sprintf("%s %s - unexpected status '%s'", req.Method, req.URL, resp.Status))
+		bb, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("%s %s - unexpected status '%s': %s", req.Method, req.URL, resp.Status, string(bb))
 	}
 
 	decoder := json.NewDecoder(resp.Body)
@@ -210,7 +212,7 @@ func (c *Client) setMultipartRequestBody(payload io.ReadCloser, req *http.Reques
 	return nil
 }
 
-func (c *Client) pushInternal(path string, body io.ReadCloser, meta payload.BlobMeta) (string, error) {
+func (c *Client) pushInternal(path string, body io.ReadCloser, meta payload.BlobMeta, size uint64) (string, error) {
 	req, err := c.makeRequest("POST", path, nil)
 	if err != nil {
 		return "", err
@@ -221,23 +223,21 @@ func (c *Client) pushInternal(path string, body io.ReadCloser, meta payload.Blob
 		return "", errors.Wrap(err, "failed to serialize blob metadata")
 	}
 	req.Header.Add("X-Blob-Meta", base64.StdEncoding.EncodeToString(metaBytes))
+	req.Header.Add("X-Blob-Size", fmt.Sprintf("%d", size))
 
 	redirectLocation, err := c.doWithRedirect(req)
 	if err != nil {
 		return "", err
 	}
 
-	if err := c.setMultipartRequestBody(body, req); err != nil {
-		return "", err
-	}
+	req.Body = body
 
 	req.URL = redirectLocation
-	req.Header.Add("X-Blob-Meta", base64.StdEncoding.EncodeToString(metaBytes))
 
 	var response payload.PushResponse
 
 	if err := c.doJSONRequest(req, &response); err != nil {
-		return "", nil
+		return "", err
 	}
 
 	return response.ID, nil
@@ -343,13 +343,13 @@ func (c *Client) Delete(blobID string) error {
 
 // Push creates a blob with the provided body and metadata to the cluster.
 // If the body is nil, the blob is created empty.
-func (c *Client) CreateBlob(body io.ReadCloser, meta payload.BlobMeta) (string, error) {
-	return c.pushInternal("/blob", body, meta)
+func (c *Client) CreateBlob(body io.ReadCloser, meta payload.BlobMeta, size uint64) (string, error) {
+	return c.pushInternal("/blob", body, meta, size)
 }
 
 // UpdateBlob updates the entirety of a blob's contents and metadata at once.
-func (c *Client) UpdateBlob(blobID string, body io.ReadCloser, meta payload.BlobMeta) error {
-	_, err := c.pushInternal(fmt.Sprintf("/blob/%s", blobID), body, meta)
+func (c *Client) UpdateBlob(blobID string, body io.ReadCloser, meta payload.BlobMeta, size uint64) error {
+	_, err := c.pushInternal(fmt.Sprintf("/blob/%s", blobID), body, meta, size)
 	return err
 }
 

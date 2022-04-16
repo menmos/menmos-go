@@ -19,7 +19,6 @@ func Test_ParseExpression(t *testing.T) {
 		{"tag basic", map[string]interface{}{"tag": "bing"}, payload.NewExpression().AndTag("bing"), false},
 		{"hasKey basic", map[string]interface{}{"key": "bing"}, payload.NewExpression().AndHasKey("bing"), false},
 		{"keyValue basic", map[string]interface{}{"key": "bing", "value": "bong"}, payload.NewExpression().AndKeyValue("bing", "bong"), false},
-		{"parent basic", map[string]interface{}{"parent": "asdf"}, payload.NewExpression().AndParent("asdf"), false},
 		{
 			"and with sized slice",
 			map[string]interface{}{

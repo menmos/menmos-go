@@ -16,10 +16,6 @@ type hasKeyNode struct {
 	Key string `json:"key"`
 }
 
-type parentNode struct {
-	Parent string `json:"parent"`
-}
-
 type andNode struct {
 	And [2]interface{} `json:"and"`
 }
@@ -86,11 +82,6 @@ func (e Expression) AndHasKey(key string) Expression {
 	return e.and(hasKeyNode{Key: key})
 }
 
-// AndParent ANDs a parent condition with the query.
-func (e Expression) AndParent(parentID string) Expression {
-	return e.and(parentNode{Parent: parentID})
-}
-
 // OrTag ORs a tag condition with the query.
 func (e Expression) OrTag(tag string) Expression {
 	return e.or(tagNode{Tag: tag})
@@ -104,11 +95,6 @@ func (e Expression) OrKeyValue(key string, value string) Expression {
 // OrHasKey ORs a "has key" condition with the query.
 func (e Expression) OrHasKey(key string) Expression {
 	return e.or(hasKeyNode{Key: key})
-}
-
-// OrParent ORs a parent condition with the query.
-func (e Expression) OrParent(parentID string) Expression {
-	return e.or(parentNode{Parent: parentID})
 }
 
 // Query is the expected menmos query request.

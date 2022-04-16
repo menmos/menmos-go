@@ -34,13 +34,6 @@ func loadHasKeyNode(key interface{}) (hasKeyNode, error) {
 	return hasKeyNode{}, errors.New("key should be a string")
 }
 
-func loadParentNode(parent interface{}) (parentNode, error) {
-	if parentStr, ok := parent.(string); ok {
-		return parentNode{Parent: parentStr}, nil
-	}
-	return parentNode{}, errors.New("parent should be a string")
-}
-
 func loadExpressionTuple(data interface{}) ([2]interface{}, error) {
 	if pair, ok := data.([]interface{}); ok {
 		if len(pair) != 2 {
@@ -84,8 +77,6 @@ func loadExpressionBody(dataObject interface{}) (interface{}, error) {
 		return loadKeyValueNode(data)
 	} else if key, ok := data["key"]; ok {
 		return loadHasKeyNode(key)
-	} else if parent, ok := data["parent"]; ok {
-		return loadParentNode(parent)
 	} else if notSubExpression, ok := data["not"]; ok {
 		expr, err := loadExpressionBody(notSubExpression)
 		return notNode{Not: expr}, err
